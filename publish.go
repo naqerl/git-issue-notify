@@ -107,7 +107,7 @@ func (p *publisher) run(ctx context.Context) {
 		}
 	drained:
 
-		if len(batch) > 2 {
+		if len(batch) > 1 {
 			for repo, group := range groupByRepo(batch) {
 				if err := p.publishWithRetry(ctx, coalesce(repo, group)); err != nil {
 					p.giveUp(group, err)
