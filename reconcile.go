@@ -305,11 +305,22 @@ func hookMatches(h *giteaHook, secret string) bool {
 	if !h.Active {
 		return false
 	}
-	want := []string{"issues", "issue_comment"}
-	got := append([]string(nil), h.Events...)
-	sort.Strings(got)
-	sort.Strings(want)
-	if strings.Join(got, ",") != strings.Join(want, ",") {
+	// Gitea expands the "issues" event into its sub-events (issue_label,
+	// issue_assign, issue_milestone), so extra events in the same family are
+	// expected and are not drift.
+	hasIssues, hasComments := false, false
+	for _, e := range h.Events {
+		switch e {
+		case "issues":
+			hasIssues = true
+		case "issue_comment":
+			hasComments = true
+		case "issue_label", "issue_assign", "issue_milestone", "issue_close", "issue_reopen", "issue_delete":
+		default:
+			return false
+		}
+	}
+	if !hasIssues || !hasComments {
 		return false
 	}
 	if h.Config["url"] != hookURL || h.Config["content_type"] != "json" {
