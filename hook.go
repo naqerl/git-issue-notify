@@ -319,38 +319,111 @@ func stripLineMarkdown(line string) string {
 	var b strings.Builder
 	b.Grow(len(t))
 	inCode := false
-	inImg := false
-	for i := 0; i < len(t); i++ {
+	for i := 0; i < len(t); {
 		c := t[i]
-		switch {
-		case c == '`':
+		if c == '`' {
 			inCode = !inCode
-			continue
-		case c == '!' && i+1 < len(t) && t[i+1] == '[':
-			inImg = true
 			i++
 			continue
-		case inImg && c == ']':
-			inImg = false
-			continue
-		case inImg:
-			continue
-		case c == '[':
-			// Markdown link: keep the label, drop the brackets.
-			continue
-		case c == ']':
-			continue
-		case c == '<' || c == '>':
-			// HTML tags are dropped wholesale below; a stray angle bracket in
-			// comparison text is rare enough to accept the loss.
-			continue
-		case c == '*' && inCode:
+		}
+		if inCode {
 			b.WriteByte(c)
-		case c == '*' || c == '_' || c == '#' || c == '~':
-			// Emphasis / strikethrough markers.
+			i++
 			continue
+		}
+		switch {
+		case c == '!' && i+1 < len(t) && t[i+1] == '[':
+			// Images carry no useful text in a notification: drop alt text
+			// and target together.
+			i = skipLink(t, i+1)
+		case c == '[':
+			// Markdown link: keep the label, drop brackets and target.
+			end := linkLabelEnd(t, i)
+			if end < 0 {
+				i++
+				continue
+			}
+			b.WriteString(stripEmphasis(t[i+1 : end]))
+			after := end + 1
+			if after < len(t) && t[after] == '(' {
+				after = skipParens(t, after)
+			}
+			i = after
+		case c == '<':
+			// HTML tag: skip it entirely.
+			if end := strings.IndexByte(t[i:], '>'); end >= 0 {
+				i += end + 1
+			} else {
+				i++
+			}
+		case c == '*' || c == '_' || c == '#' || c == '~':
+			// Emphasis and strikethrough markers.
+			i++
 		default:
 			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+// linkLabelEnd returns the index of the ']' that closes the label opened at
+// start ('['), or -1.
+func linkLabelEnd(t string, start int) int {
+	depth := 0
+	for i := start; i < len(t); i++ {
+		switch t[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// skipParens returns the index just past the ')' matching the '(' at start.
+func skipParens(t string, start int) int {
+	depth := 0
+	for i := start; i < len(t); i++ {
+		switch t[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i + 1
+			}
+		}
+	}
+	return len(t)
+}
+
+// skipLink drops a link or image starting at the '[' at start.
+func skipLink(t string, start int) int {
+	end := linkLabelEnd(t, start)
+	if end < 0 {
+		return start + 1
+	}
+	after := end + 1
+	if after < len(t) && t[after] == '(' {
+		after = skipParens(t, after)
+	}
+	return after
+}
+
+// stripEmphasis removes emphasis markers from a link label.
+func stripEmphasis(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '*', '_', '~':
+			continue
+		default:
+			b.WriteByte(s[i])
 		}
 	}
 	return b.String()
